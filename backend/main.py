@@ -13,6 +13,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, parent of the vendored `qwen` package
 
 import numpy as np
+import requests
 import torch
 import soundfile as sf
 from dotenv import load_dotenv
@@ -26,7 +27,7 @@ from pydantic import BaseModel
 load_dotenv(Path(__file__).parent / ".env")
 
 import credits
-from auth import get_current_user
+from auth import get_current_user, get_last_activity
 from config.plans import DEFAULT_PLAN, PLANS
 from qwen import FasterQwen3TTS
 from audio_convert import wav_to_mp4, write_mp4
@@ -88,15 +89,27 @@ MAX_NEW_TOKENS = 700
 MAX_TOTAL_CHARS = 60_000
 STITCH_GAP_SECONDS = 0.2
 
+# Idle auto-stop: RUNPOD_API_KEY/RUNPOD_POD_ID let this process stop its own
+# RunPod pod once nobody's using it (paired with the Vercel api/wake.ts
+# function on the frontend, which resumes it on demand). Left unset for local
+# dev, where the loop below just logs once and never runs.
+RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY")
+RUNPOD_POD_ID = os.environ.get("RUNPOD_POD_ID")
+IDLE_CHECK_INTERVAL_MIN = float(os.environ.get("IDLE_CHECK_INTERVAL_MIN", "10"))
+IDLE_STOP_THRESHOLD_MIN = float(os.environ.get("IDLE_STOP_THRESHOLD_MIN", "10"))
+
 # Reference-audio duration bounds for new presets. ICL voice cloning gets
 # unstable outside this range: too short starves the speaker encoder of
 # signal; too long eats into the same max_seq_len budget generation uses and
 # has been observed (empirically, this session) to cause unstable output --
 # degenerate babbling that runs to the full token budget, or near-instant
 # stopping -- regardless of chunk size. 23s reference clips reproduced this
-# reliably; keep well under that.
+# reliably at the old 15s cap. Raised to 60s by product decision (2026-07) --
+# this is well past the 23s point where instability was previously observed,
+# so watch for garbled/looping output on long reference clips and lower this
+# again if it reproduces.
 MIN_REF_AUDIO_SECS = 2.0
-MAX_REF_AUDIO_SECS = 15.0
+MAX_REF_AUDIO_SECS = 60.0
 # Loose sanity check that ref_text is plausibly a transcript of ref audio,
 # not a placeholder (e.g. "ZAZA" for a 23s clip). Real speech is roughly
 # 12-15 chars/sec; anything under ~3 chars/sec is almost certainly wrong.
@@ -475,6 +488,58 @@ def _worker_loop() -> None:
             credits.release_reservation(_jobs[job_id]["user_id"])
 
 
+def _stop_runpod_pod() -> bool:
+    try:
+        resp = requests.post(
+            f"https://rest.runpod.io/v1/pods/{RUNPOD_POD_ID}/stop",
+            headers={"Authorization": f"Bearer {RUNPOD_API_KEY}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        logger.info("Idle auto-stop: RunPod pod %s stop requested.", RUNPOD_POD_ID)
+        return True
+    except Exception:
+        logger.exception("Idle auto-stop: failed to stop RunPod pod %s -- will retry next check", RUNPOD_POD_ID)
+        return False
+
+
+def _idle_stop_loop() -> None:
+    """Stops this pod once it's been idle (no authenticated request) for
+    IDLE_STOP_THRESHOLD_MIN minutes, checked every IDLE_CHECK_INTERVAL_MIN
+    minutes. Never fires while a job is running or queued -- an in-flight
+    generation must never be interrupted by a self-stop, even if it happens
+    to run long past the idle threshold with no new requests coming in."""
+    if not RUNPOD_API_KEY or not RUNPOD_POD_ID:
+        logger.info(
+            "RUNPOD_API_KEY/RUNPOD_POD_ID not set -- idle auto-stop disabled "
+            "(expected for local dev)."
+        )
+        return
+    logger.info(
+        "Idle auto-stop enabled: checking every %.0fm, stopping after %.0fm with no "
+        "authenticated requests and an empty job queue.",
+        IDLE_CHECK_INTERVAL_MIN, IDLE_STOP_THRESHOLD_MIN,
+    )
+    while True:
+        time.sleep(IDLE_CHECK_INTERVAL_MIN * 60)
+        with _jobs_lock:
+            busy = _current_running_job_id is not None or bool(_pending_job_ids)
+        if busy:
+            logger.info("Idle auto-stop: queue has active/pending jobs -- skipping check.")
+            continue
+        idle_for = time.time() - get_last_activity()
+        if idle_for < IDLE_STOP_THRESHOLD_MIN * 60:
+            continue
+        logger.info(
+            "Idle auto-stop: idle for %.0fm with an empty queue -- stopping pod.",
+            idle_for / 60,
+        )
+        if _stop_runpod_pod():
+            return  # pod is stopping -- nothing left to check
+        # else: stop call failed (transient RunPod API error) -- loop back
+        # and retry at the next check interval instead of giving up forever.
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _tts
@@ -488,6 +553,7 @@ async def lifespan(app: FastAPI):
     )
     _restore_queue_on_startup()
     threading.Thread(target=_worker_loop, daemon=True).start()
+    threading.Thread(target=_idle_stop_loop, daemon=True).start()
     yield
 
 

@@ -1,4 +1,4 @@
-import { cancelQueuedJob, downloadUrl, reorderQueue } from '../api'
+import { cancelQueuedJob, downloadUrl, mediaUrl, reorderQueue } from '../api'
 import { useGenerationActivity } from '../GenerationActivityContext'
 import { downloadName, formatDuration } from '../format'
 import ClipPlayer from './ClipPlayer'
@@ -82,7 +82,7 @@ export default function QueuePanel() {
               {entry.audio_url && (
                 <div className="list-actions">
                   <ClipPlayer
-                    src={entry.audio_url}
+                    src={mediaUrl(entry.audio_url)}
                     durationS={null}
                     entryKey={entry.job_id}
                     label={`${entry.preset_name} clip`}

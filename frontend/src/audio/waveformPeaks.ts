@@ -60,9 +60,11 @@ function wavSampleRate(buf: ArrayBuffer): number | null {
 }
 
 async function compute(url: string, buckets: number): Promise<PeaksResult | null> {
-  // Cross-origin clips can't be fetched for decoding -- caller falls back
-  // to the procedural shape. (audio_url is same-origin today.)
-  if (new URL(url, location.href).origin !== location.origin) return null
+  // audio_url/preview_url are cross-origin now (Vercel frontend, RunPod
+  // backend) -- this relies on the backend's CORS middleware allowing the
+  // frontend's origin (see ALLOWED_ORIGINS in backend/.env). getPeaks()
+  // catches any failure here and falls back to the procedural shape, so a
+  // misconfigured origin just degrades to a fake waveform rather than erroring.
   const res = await fetch(url)
   if (!res.ok) return null
   const buf = await res.arrayBuffer()

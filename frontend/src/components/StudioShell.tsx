@@ -14,13 +14,13 @@ import GenerateButton from './GenerateButton'
 import AccountBadge from './AccountBadge'
 import { MAX_SCRIPT_CHARS } from '../constants'
 import { useGenerationActivity } from '../GenerationActivityContext'
+import { wakeBackend } from '../wake'
 import {
   ApiError,
   createPreset,
   deleteHistoryEntry,
   deletePreset,
   getAccount,
-  getHealth,
   getLanguages,
   listHistory,
   listPresets,
@@ -55,6 +55,9 @@ export default function StudioShell() {
   const navigate = useNavigate()
 
   const [modelStatus, setModelStatus] = useState<'checking' | 'ready' | 'down'>('checking')
+  const [wakeMessage, setWakeMessage] = useState<string | null>(null)
+  const [wakeNonce, setWakeNonce] = useState(0)
+  const [warmingUp, setWarmingUp] = useState(false)
   const [languages, setLanguages] = useState<string[]>([])
 
   const [presets, setPresets] = useState<Preset[]>([])
@@ -106,36 +109,40 @@ export default function StudioShell() {
     return () => window.clearInterval(timer)
   }, [])
 
+  // Landing on the Studio page is itself a strong signal of intent to use
+  // the app -- and since the whole backend (not just generation) lives on
+  // the RunPod pod, presets/history/account are all unreachable until it's
+  // awake anyway. So this wakes the pod on mount rather than waiting for an
+  // explicit Generate click; handleGenerateAll below calls wakeBackend again
+  // as a race guard in case the pod auto-stopped again while the tab sat idle.
   useEffect(() => {
     let cancelled = false
-    const poll = () => {
-      getHealth()
-        .then((h) => {
-          if (cancelled) return
-          if (h.model_loaded) {
-            setModelStatus('ready')
-            getLanguages()
-              .then((r) => !cancelled && setLanguages(r.languages))
-              .catch(() => {})
-            refreshPresets()
-            refreshHistory()
-          } else {
-            setModelStatus('checking')
-            setTimeout(poll, 2000)
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setModelStatus('down')
-            setTimeout(poll, 3000)
-          }
-        })
-    }
-    poll()
+    setModelStatus('checking')
+    setWakeMessage(null)
+    wakeBackend((status, elapsedMs) => {
+      if (cancelled || status !== 'starting') return
+      setModelStatus('checking')
+      setWakeMessage(`Warming up the voice model... (${Math.round(elapsedMs / 1000)}s)`)
+    })
+      .then(() => {
+        if (cancelled) return
+        setModelStatus('ready')
+        setWakeMessage(null)
+        getLanguages()
+          .then((r) => !cancelled && setLanguages(r.languages))
+          .catch(() => {})
+        refreshPresets()
+        refreshHistory()
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setModelStatus('down')
+        setWakeMessage(e instanceof Error ? e.message : 'Backend unreachable.')
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [wakeNonce])
 
   // With the Queue tab gone, finished jobs should surface in Generations
   // without a reload -- re-fetch history whenever another job completes.
@@ -231,8 +238,30 @@ export default function StudioShell() {
       setError('Add at least one script with text and a selected voice.')
       return
     }
-    setSubmittingAll(true)
     setError(null)
+
+    // modelStatus is normally already 'ready' by the time this button is
+    // clickable (canGenerateAll requires it) -- this call is a fast no-op in
+    // that case, and a real race guard for the case where the pod
+    // auto-stopped again while the tab sat idle (e.g. laptop sleep).
+    setWarmingUp(true)
+    try {
+      await wakeBackend((status, elapsedMs) => {
+        setWakeMessage(
+          status === 'starting' ? `Warming up the voice model... (${Math.round(elapsedMs / 1000)}s)` : null,
+        )
+      })
+    } catch (e) {
+      setWarmingUp(false)
+      setWakeMessage(null)
+      setModelStatus('down')
+      setError(e instanceof Error ? e.message : 'Failed to start the backend.')
+      return
+    }
+    setWarmingUp(false)
+    setWakeMessage(null)
+
+    setSubmittingAll(true)
     try {
       for (const block of validBlocks) {
         await startGenerate({
@@ -259,7 +288,11 @@ export default function StudioShell() {
     account !== null && !account.unlimited && account.credits_remaining - account.credits_reserved <= 0
 
   const canGenerateAll =
-    modelStatus === 'ready' && validBlocks.length > 0 && !submittingAll && !noCreditsRemaining
+    modelStatus === 'ready' &&
+    validBlocks.length > 0 &&
+    !submittingAll &&
+    !warmingUp &&
+    !noCreditsRemaining
 
   return (
     <>
@@ -280,9 +313,18 @@ export default function StudioShell() {
               {modelStatus === 'ready'
                 ? 'Model ready'
                 : modelStatus === 'checking'
-                  ? 'Loading model...'
-                  : 'Backend unreachable'}
+                  ? (wakeMessage ?? 'Loading model...')
+                  : (wakeMessage ?? 'Backend unreachable')}
             </span>
+            {modelStatus === 'down' && (
+              <button
+                type="button"
+                className="wake-retry-btn"
+                onClick={() => setWakeNonce((n) => n + 1)}
+              >
+                Retry
+              </button>
+            )}
             <AccountBadge account={account} />
           </div>
 
@@ -397,6 +439,7 @@ export default function StudioShell() {
           <GenerateButton
             disabled={!canGenerateAll}
             busy={submittingAll}
+            warming={warmingUp}
             count={validBlocks.length}
             pulseEpoch={pulseEpoch}
             onClick={handleGenerateAll}

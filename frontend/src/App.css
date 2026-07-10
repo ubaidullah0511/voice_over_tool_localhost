@@ -241,6 +241,30 @@ body {
   color: var(--accent-red);
 }
 
+/* Wake-flow status text ("Warming up the voice model... (42s)") runs longer
+ * than the short default labels -- let it wrap instead of overflowing the
+ * rail on narrow viewports. */
+.badge-checking,
+.badge-down {
+  white-space: normal;
+  max-width: 100%;
+}
+
+.wake-retry-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-red);
+  background: transparent;
+  border: 1px solid var(--accent-red-soft);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.wake-retry-btn:hover {
+  background: var(--accent-red-soft);
+}
+
 /* Glass panels (top-level only -- nested surfaces stay solid, no blur) */
 .panel {
   background: var(--bg-panel);

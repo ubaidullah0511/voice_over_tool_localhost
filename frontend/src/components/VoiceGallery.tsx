@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Preset } from '../api'
+import { mediaUrl, type Preset } from '../api'
 import { useAudioActivity } from '../AudioActivityContext'
 import { useGenerationActivity } from '../GenerationActivityContext'
 import { usePageVisible } from '../hooks/usePageVisible'
@@ -100,7 +100,7 @@ export default function VoiceGallery({ presets, selectedPresetId, onSelect, onDe
       setPreviewingId(null)
       return
     }
-    audio.src = preset.preview_url
+    audio.src = mediaUrl(preset.preview_url)
     audio.play().catch(() => {})
     setPreviewingId(preset.id)
   }

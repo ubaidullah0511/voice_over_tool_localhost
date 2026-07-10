@@ -5,6 +5,10 @@ import { WandIcon } from './Icons'
 interface Props {
   disabled: boolean
   busy: boolean
+  /** True while waking the backend, before any job has actually been
+   * submitted -- shown as distinct copy from `busy` so a 30-90s wake isn't
+   * mistaken for a stuck submit. */
+  warming?: boolean
   count: number
   /** Increment to fire the one-shot pulse ring (keyed remount). */
   pulseEpoch: number
@@ -24,6 +28,7 @@ const SHADOW_TAP =
 export default function GenerateButton({
   disabled,
   busy,
+  warming,
   count,
   pulseEpoch,
   onClick,
@@ -55,8 +60,18 @@ export default function GenerateButton({
         transition={{ type: 'spring', stiffness: 400, damping: 26 }}
       >
         <WandIcon />
-        <span>{busy ? 'Submitting...' : noCredits ? 'No credits remaining' : 'Generate all'}</span>
-        {!busy && !noCredits && count > 1 && <span className="mono generate-count">{count}</span>}
+        <span>
+          {warming
+            ? 'Warming up the voice model...'
+            : busy
+              ? 'Submitting...'
+              : noCredits
+                ? 'No credits remaining'
+                : 'Generate all'}
+        </span>
+        {!busy && !warming && !noCredits && count > 1 && (
+          <span className="mono generate-count">{count}</span>
+        )}
       </motion.button>
     </div>
   )

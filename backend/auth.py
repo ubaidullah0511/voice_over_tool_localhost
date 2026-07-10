@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 import jwt
@@ -15,6 +16,18 @@ CLERK_JWKS_URL = os.environ["CLERK_JWKS_URL"]
 # it hasn't seen shows up (e.g. after Clerk rotates signing keys) -- no manual
 # cache invalidation needed.
 _jwks_client = jwt.PyJWKClient(CLERK_JWKS_URL)
+
+# Timestamp of the last successfully authenticated request, used by main.py's
+# idle auto-stop task to decide when the RunPod pod has gone unused. Every
+# route that depends on get_current_user counts as activity -- notably this
+# includes the background queue poller (GenerationActivityContext.tsx), so a
+# tab left open keeps resetting this even with no active generation. That's a
+# deliberate tradeoff (see main.py's idle-stop loop for the full explanation).
+_last_activity_at = time.time()
+
+
+def get_last_activity() -> float:
+    return _last_activity_at
 
 
 def _verify_token(token: str) -> dict:
@@ -51,4 +64,8 @@ async def get_current_user(authorization: str = Header(...)) -> str:
     email = claims.get("email") or claims.get("email_address")
 
     credits.get_or_create_user(user_id, email)
+
+    global _last_activity_at
+    _last_activity_at = time.time()
+
     return user_id

@@ -28,7 +28,7 @@ export default function LandingPage({ onEnter }: Props) {
           </div>
           <h1>Clone any voice in seconds</h1>
           <p className="landing-subtitle">
-            Create perfect AI voice clones with a 2-15 second reference clip. Studio-quality
+            Create perfect AI voice clones with a 2-60 second reference clip. Studio-quality
             voiceovers at scale, all running locally on your GPU.
           </p>
           <div className="landing-cta-buttons">
@@ -52,7 +52,7 @@ export default function LandingPage({ onEnter }: Props) {
               </div>
               <h3>Instant voice clones</h3>
               <p>
-                Upload a 2-15 second reference clip and get a perfect voice clone.
+                Upload a 2-60 second reference clip and get a perfect voice clone.
                 Auto-transcription keeps everything simple.
               </p>
             </div>
@@ -118,7 +118,7 @@ export default function LandingPage({ onEnter }: Props) {
               <div className="landing-step-number">1</div>
               <h3>Add a voice</h3>
               <p>
-                Create a preset with a reference clip (2-15 sec). Name it, optionally add a
+                Create a preset with a reference clip (2-60 sec). Name it, optionally add a
                 mood tag. Let it auto-transcribe or paste the exact text.
               </p>
             </div>
@@ -163,7 +163,7 @@ export default function LandingPage({ onEnter }: Props) {
           <h2 className="landing-section-title">Specs & limits</h2>
           <div className="landing-specs-grid">
             <div className="landing-spec-box">
-              <div className="landing-spec-value">2-15s</div>
+              <div className="landing-spec-value">2-60s</div>
               <div className="landing-spec-label">Reference clip</div>
             </div>
             <div className="landing-spec-box">

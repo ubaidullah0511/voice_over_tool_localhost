@@ -1,4 +1,4 @@
-import { downloadUrl, type HistoryEntry } from '../api'
+import { downloadUrl, mediaUrl, type HistoryEntry } from '../api'
 import { downloadName, formatDuration, timeAgo } from '../format'
 import ClipPlayer from './ClipPlayer'
 import { TrashIcon, WandIcon } from './Icons'
@@ -42,7 +42,7 @@ export default function HistoryList({ history, onDelete, onRequeue }: Props) {
               </p>
               <div className="list-actions">
                 <ClipPlayer
-                  src={entry.audio_url}
+                  src={mediaUrl(entry.audio_url)}
                   durationS={entry.duration_s}
                   entryKey={entry.id}
                   label={`${entry.preset_name} clip`}

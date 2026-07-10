@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.pyc
+backend/venv/
 
 # Node
 node_modules/
@@ -11,6 +12,7 @@ backend/storage/
 
 # Stray test artifacts
 backend/gen_resp.json
+backend/uvicorn.log
 
 # Env / secrets
 .env
